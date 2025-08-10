@@ -2,6 +2,7 @@ import pandas as pd
 import torch
 from sentence_transformers import util
 
+
 class Entity:
     def __init__(self, entity_id : str, entity_label : str, label_embedding : torch.Tensor):
         """

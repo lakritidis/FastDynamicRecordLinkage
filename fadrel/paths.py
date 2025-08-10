@@ -25,6 +25,7 @@ models_path = 'models/'
 seq_class_file = 'SequenceClassifier'
 model_eval_file = 'model_eval.csv'
 
+
 def create_output_dirs(dataset_name):
     if not os.path.isdir(output_path):
         os.mkdir(output_path)

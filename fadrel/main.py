@@ -7,13 +7,14 @@ from FADREL_prepare import FADRELPreparationPhase
 from FADREL_match import FADRELMatchingPhase
 from Tools import set_random_states, get_random_states, reset_random_states
 
+
 random_state = 42
 max_embeddings_length = 32
 epochs = 5
 batch_size = 16
 evaluate_classifier = False
 positive_title_pairs = 3
-negative_label_pairs = 9
+negative_label_pairs = 7
 negative_title_pairs = 0
 
 
