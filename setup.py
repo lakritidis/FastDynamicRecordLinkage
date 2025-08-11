@@ -21,11 +21,11 @@ setup(
                       "pandas",
                       "torch>=2.0.0",
                       "scikit-learn>=1.4.0",
-                      "transformers>=4.4.0",
+                      "transformers>=4.53.0",
                       "sentence_transformers>=0.8.0",
-                      "tqdm>=4.60.0",],
+                      "tqdm>=4.66.3", ],
     license="Apache",
     keywords=[
-        "tabular data", "tabular data synthesis", "data engineering", "imbalanced data", "GAN", "VAE", "oversampling",
-        "machine learning", "deep learning"]
+        "record linkage", "entity matching", "entity resolution", "dynamic record linkage",
+        "text matching", "record deduplication"]
 )

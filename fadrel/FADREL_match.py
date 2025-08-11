@@ -134,8 +134,8 @@ class FADRELMatchingPhase:
         # for c in self.clusters:
         #    self.clusters[c].display(show_embeddings=True, show_contents=True)
 
-        test_df.loc[:, self.title_column] = test_df[self.title_column].apply(lambda x: FADREL_prepare.preprocess_text(x))
-        test_df.loc[:, self.label_column] = test_df[self.label_column].apply(lambda x: FADREL_prepare.preprocess_text(x))
+        test_df.loc[self.title_column] = test_df[self.title_column].apply(lambda x: FADREL_prepare.preprocess_text(x))
+        test_df.loc[self.label_column] = test_df[self.label_column].apply(lambda x: FADREL_prepare.preprocess_text(x))
 
         query_set = self.build_query_set(test_df)
 

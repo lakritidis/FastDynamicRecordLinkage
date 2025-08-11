@@ -1,12 +1,13 @@
 import pandas as pd
 import paths
-
+import torch
 from sklearn.model_selection import KFold
 
 from FADREL_prepare import FADRELPreparationPhase
 from FADREL_match import FADRELMatchingPhase
 from Tools import set_random_states, get_random_states, reset_random_states
 
+print(torch.__version__)
 
 random_state = 42
 max_embeddings_length = 32
