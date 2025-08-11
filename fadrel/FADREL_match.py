@@ -12,16 +12,17 @@ from MatchMaker import MatchMaker
 
 
 class FADRELMatchingPhase:
-    def __init__(self, dataset_name : str, method_name : str, label_id_col : str, label_str_col : str, title_col : str,
-                 paths : dict, max_emb_len : int=128, epochs : int=5, batch_size : int=16, random_state=0) -> None:
+    def __init__(self, dataset_name : str, method_name : str, entity_id_col : str, entity_label_col : str,
+                 title_col : str, paths : dict, max_emb_len : int = 128, epochs : int = 5, batch_size : int = 16,
+                 random_state=0) -> None:
         """
         Initialize the FaDReL matching phase pipeline
 
         Args:
             dataset_name (str): name of the dataset
             method_name (str) : name of the method (used to describe the results)
-            label_id_col (str): column name of the label ids
-            label_str_col (str): column name of the label strings
+            entity_id_col (str): column name of the label ids
+            entity_label_col (str): column name of the label strings
             title_col (str): column name of the entity titles
             paths (dict): The paths of the output files
             max_emb_len (int): The maximum length of the title/label sentence embeddings.
@@ -33,8 +34,8 @@ class FADRELMatchingPhase:
         self.dataset_name = dataset_name
         self.method_name = method_name
 
-        self.label_id_column = label_id_col
-        self.label_column = label_str_col
+        self.label_id_column = entity_id_col
+        self.label_column = entity_label_col
         self.title_column = title_col
         self.random_state = random_state
 
@@ -134,8 +135,8 @@ class FADRELMatchingPhase:
         # for c in self.clusters:
         #    self.clusters[c].display(show_embeddings=True, show_contents=True)
 
-        test_df.loc[self.title_column] = test_df[self.title_column].apply(lambda x: FADREL_prepare.preprocess_text(x))
-        test_df.loc[self.label_column] = test_df[self.label_column].apply(lambda x: FADREL_prepare.preprocess_text(x))
+        test_df[self.title_column] = test_df[self.title_column].map(FADREL_prepare.preprocess_text)
+        test_df[self.label_column] = test_df[self.label_column].map(FADREL_prepare.preprocess_text)
 
         query_set = self.build_query_set(test_df)
 

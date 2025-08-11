@@ -12,11 +12,11 @@ from SentencePairBuilder import SentencePairBuilder
 from Entity import Entity
 
 
-def preprocess_text(text):
+def preprocess_text(s):
     """
     Clean the white space and lowercase the text
     """
-    return " ".join(text.split()).lower()
+    return ' '.join(s.split()).lower()
 
 
 class FADRELPreparationPhase:
@@ -143,7 +143,7 @@ class FADRELPreparationPhase:
         entity_label_column_idx = train_df.columns.get_loc(self.entity_label_column)
 
         # Preprocess the text in the cluster labels and entity titles
-        train_df[self.entity_label_column] = train_df[self.entity_label_column].apply(lambda x: preprocess_text(x))
+        train_df[self.entity_label_column] = train_df[self.entity_label_column].map(preprocess_text)
 
         # Get the unique cluster IDs. Retrieve the corresponding labels and generate their sentence embeddings.
         entity_ids, indices = np.unique(train_df.loc[:, self.entity_id_column].to_numpy(), return_index=True)
@@ -190,7 +190,7 @@ class FADRELPreparationPhase:
         # only need it to create positive/negative pairs with the titles.
         if not os.path.isfile(self.training_pairs_path) and not os.path.isfile(self.classifier_path):
             title_column_idx = train_df.columns.get_loc(self.title_column)
-            train_df.self.title_column = train_df.self.title_column.apply(lambda x: preprocess_text(x))
+            train_df[self.title_column] = train_df[self.title_column].map(preprocess_text)
 
             entity_titles = train_df.loc[:, self.title_column].to_numpy()
             title_embeddings = self.text_vectorizer.encode(entity_titles, convert_to_tensor=False)

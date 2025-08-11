@@ -1,13 +1,10 @@
 import pandas as pd
 import paths
-import torch
 from sklearn.model_selection import KFold
 
 from FADREL_prepare import FADRELPreparationPhase
 from FADREL_match import FADRELMatchingPhase
 from Tools import set_random_states, get_random_states, reset_random_states
-
-print(torch.__version__)
 
 random_state = 42
 max_embeddings_length = 32
@@ -51,8 +48,8 @@ if __name__ == '__main__':
 
         print("\n===\n=== Processing fold " + str(fold))
 
-        train_df = df.iloc[train_idx]
-        test_df = df.iloc[test_idx]
+        train_df = df.iloc[train_idx].copy()
+        test_df = df.iloc[test_idx].copy()
         method_name = "neg" + str(negative_label_pairs) + "_pos" + str(positive_title_pairs) + "_fold" + str(fold)
 
         fold_paths = {
@@ -64,8 +61,8 @@ if __name__ == '__main__':
         }
 
         # Offline pipeline
-        offline_pipe = FADRELPreparationPhase(dataset_name=dataset_name, entity_id_col=label_id_column, entity_label_col=label_column,
-                                              title_col=title_column, paths=fold_paths,
+        offline_pipe = FADRELPreparationPhase(dataset_name=dataset_name, entity_id_col=label_id_column,
+                                              entity_label_col=label_column, title_col=title_column, paths=fold_paths,
                                               max_emb_len=max_embeddings_length, epochs=epochs, batch_size=batch_size,
                                               num_neg_pairs_labels=negative_label_pairs, num_pos_pairs_titles=positive_title_pairs,
                                               num_neg_pairs_titles=negative_title_pairs,
@@ -73,7 +70,8 @@ if __name__ == '__main__':
         offline_pipe.run(train_df)
 
         # Online pipeline
-        online_pipe = FADRELMatchingPhase(dataset_name=dataset_name, method_name=method_name, label_id_col=label_id_column,
-                                          label_str_col=label_column, title_col=title_column, paths=fold_paths, epochs=epochs,
+        online_pipe = FADRELMatchingPhase(dataset_name=dataset_name, method_name=method_name,
+                                          entity_id_col=label_id_column, entity_label_col=label_column,
+                                          title_col=title_column, paths=fold_paths, epochs=epochs,
                                           max_emb_len=max_embeddings_length, batch_size=batch_size, random_state=random_state)
         online_pipe.run(test_df)

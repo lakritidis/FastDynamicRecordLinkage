@@ -14,7 +14,7 @@ class FADRELResult:
         self.recall = 0
         self.f1 = 0
 
-    def display(self):
+    def display(self) -> None:
         print(f"Correctly Seen: {self.cor_seen} - Incorrectly Seen: {self.inc_seen} - "
               f"Correctly Unseen: {self.cor_unseen} - Incorrectly Unseen: {self.inc_unseen} === "
               f"Correctly Classified: {self.cor_classified}")
@@ -23,7 +23,7 @@ class FADRELResult:
         print(f"Accuracy: {self.accuracy: .4f} - Precision: {self.precision: .4f} - Recall: {self.recall: .4f}"
               f"- F1: {self.f1: .4f}")
 
-    def record(self, filename):
+    def record(self, filename : str) -> None:
 
         self.accuracy = ((self.cor_seen + self.cor_unseen) /
                     (self.cor_seen + self.cor_unseen + self.inc_seen + self.inc_unseen))

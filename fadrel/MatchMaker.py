@@ -48,7 +48,7 @@ class MatchMaker:
         """
         print("\nMatching the unlabeled entities...", flush=True)
         eval_dataset = SentencePairDataset(self._tokenizer, self._batch_size, self._max_length)
-        unmatched_entities = []
+        unmatched_records = []
 
         self._model.eval()
 
@@ -86,7 +86,7 @@ class MatchMaker:
                     num_incorrect_unseen += 1
 
                 # print(f"==== No label was assigned\n")
-                unmatched_entities.append((title, ground_truth_label))
+                unmatched_records.append((title, ground_truth_label))
 
             else:
                 # Query the model. Identify whether this title matches any of the existing candidate entities.
@@ -154,13 +154,13 @@ class MatchMaker:
                         num_incorrect_unseen += 1
 
                     # print(f"==== No label was assigned\n")
-                    unmatched_entities.append((title, ground_truth_label))
+                    unmatched_records.append((title, ground_truth_label))
 
-            # print(f"Correctly Seen: {num_correct_seen} - Incorrectly Seen: {num_incorrect_seen} - "
-            #      f"Correctly Unseen: {num_correct_unseen} - Incorrectly Unseen: {num_incorrect_unseen} === "
-            #      f"Correctly Classified: {num_correct_labeled}/{num_actual_seen}")
+            print(f"Correctly Seen: {num_correct_seen} - Incorrectly Seen: {num_incorrect_seen} - "
+                  f"Correctly Unseen: {num_correct_unseen} - Incorrectly Unseen: {num_incorrect_unseen} === "
+                  f"Correctly Classified: {num_correct_labeled}/{num_actual_seen}")
 
-        self.handle_unmatched_entities(unmatched_entities)
+        self.handle_unmatched_entities(unmatched_records)
 
         result_record = FADRELResult(name=self._method_name, f=int(self._method_name[-1]))
         result_record.cor_seen = num_correct_seen
@@ -171,7 +171,7 @@ class MatchMaker:
 
         result_record.record(filename="results/results.csv")
 
-    def handle_unmatched_entities(self, unmatched_entities : list):
+    def handle_unmatched_entities(self, unmatched_records : list):
         """
         An input title may match one, or none of the existing entities. In the latter case, the algorithm maintains
         self.new_clusters to accommodate these titles.
@@ -179,40 +179,42 @@ class MatchMaker:
         a new cluster will be created.
 
         Args:
-            unmatched_entities (str) : The title of the record that we try to match.
+            unmatched_records (str) : The title of the record that we try to match.
         """
 
         print("\nMatching the remaining unmatched entities...", flush=True)
-        # Build an inverted index on the titles of the unmatched entities.
-        entity_inv_index = {}
-        unmatched_entities_df = pd.DataFrame(unmatched_entities, columns=['unmat_entity', 'ground_truth_label'])
-        # unique_entities = list(set(unmatched_entities))
-        unique_entities, indices = np.unique(unmatched_entities_df.loc[:, 'unmat_entity'].to_numpy(), return_index=True)
+        # Build an inverted index on the titles of the unmatched records.
+        records_inv_index = {}
+        unmatched_records_df = pd.DataFrame(unmatched_records, columns=['unmat_entity', 'ground_truth_label'])
+        # unique_entities = list(set(unmatched_records))
+        unique_entities, indices = np.unique(unmatched_records_df.loc[:, 'unmat_entity'].to_numpy(), return_index=True)
 
         for idx in indices:
-            unique_title = unmatched_entities[idx][0]
+            unique_title = unmatched_records[idx][0]
             words = unique_title.split()
             for word in words:
-                if word not in entity_inv_index:
-                    entity_inv_index[word] = [idx]
+                if word not in records_inv_index:
+                    records_inv_index[word] = [idx]
                 else:
-                    entity_inv_index[word].append(idx)
+                    records_inv_index[word].append(idx)
 
         # Use the index to find the most suitable entities to search for
-        num_unmatched_entities = len(unmatched_entities)
+        num_unmatched_records = len(unmatched_records)
+        print("Number of unmatched entities: ", num_unmatched_records)
+
         unmatched_entities_pairs = []
-        for idx in range(num_unmatched_entities):
-            unmatched_entity_title = unmatched_entities[idx][0]
-            unmatched_entity_label = unmatched_entities[idx][1]
+        for idx in range(num_unmatched_records):
+            unmatched_entity_title = unmatched_records[idx][0]
+            unmatched_entity_label = unmatched_records[idx][1]
 
             candidate_entity_ids = []
             for w in unmatched_entity_title.split():
-                if w in entity_inv_index:
-                    inverted_list = entity_inv_index[w]
+                if w in records_inv_index:
+                    inverted_list = records_inv_index[w]
                     candidate_entity_ids.extend(inverted_list)
 
             candidate_entity_ids = np.unique(candidate_entity_ids).tolist()
-            candidate_entities = [unmatched_entities[idx] for idx in candidate_entity_ids]
+            candidate_entities = [unmatched_records[idx] for idx in candidate_entity_ids]
             for candidate_entity in candidate_entities:
                 match = 0
                 if candidate_entity[1] == unmatched_entity_label:
@@ -220,11 +222,11 @@ class MatchMaker:
                 unmatched_entities_pairs.append((unmatched_entity_title, candidate_entity[0], match))
 
         # Now create a dataset with the candidate entities and ask the model whether these entities match each other
-        unmatched_entities_df = pd.DataFrame(unmatched_entities_pairs, columns=['t1', 't2', 'y'])
-        # unmatched_entities_df.to_csv("unmatched_entities.csv", index=False)
+        unmatched_records_df = pd.DataFrame(unmatched_entities_pairs, columns=['t1', 't2', 'y'])
+        # unmatched_records_df.to_csv("unmatched_entities.csv", index=False)
 
         new_cluster_dataset = SentencePairDataset(self._tokenizer, self._batch_size, self._max_length)
-        dataloader = new_cluster_dataset.create_data_loader(unmatched_entities_df, sort_col=None, label_col='y')
+        dataloader = new_cluster_dataset.create_data_loader(unmatched_records_df, sort_col=None, label_col='y')
         self._model.eval()
         with torch.no_grad():
             for n_batch, batch in enumerate(dataloader):
@@ -238,7 +240,7 @@ class MatchMaker:
 
         # Prepare a dictionary (entity -> cluster) for fast entity assignment
         unmatched_entities_dict = {}
-        for unmatched_entity in unmatched_entities:
+        for unmatched_entity in unmatched_records:
             unmatched_entities_dict[unmatched_entity[0]] = 0
 
         # Assign entities to the records according to the model's predictions
