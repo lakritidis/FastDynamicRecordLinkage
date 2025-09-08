@@ -23,7 +23,8 @@ setup(
                       "scikit-learn>=1.4.0",
                       "transformers>=4.53.0",
                       "sentence_transformers>=0.8.0",
-                      "tqdm>=4.66.3", ],
+                      "tqdm>=4.66.3",
+                      "keybert>=0.9"],
     license="Apache",
     keywords=[
         "record linkage", "entity matching", "entity resolution", "dynamic record linkage",

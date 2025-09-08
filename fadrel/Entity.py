@@ -4,19 +4,20 @@ from sentence_transformers import util
 
 
 class Entity:
-    def __init__(self, entity_id : str, entity_label : str, label_embedding : torch.Tensor):
+    def __init__(self, entity_id : str, fadrel_id : int, entity_label : str, label_embedding : torch.Tensor):
         """
         Initialize a FaDReL Entity object.
 
         Args:
-            entity_id (str): The entity ID.
+            entity_id (str): The entity ID (as it was provided by the training set).
+            fadrel_id (int): The entity ID (internal FaDREL ID - zero-based integer).
             entity_label (str): The entity label.
             label_embedding (Torch.tensor): The embedding of the entity label.
         """
         self.id = entity_id
+        self.fadrel_id = fadrel_id
         self.label = entity_label
         self.label_embedding = label_embedding
-
 
         self.num_matching_records = 0
         self.matching_records = {}  # A dictionary of (Record Title -> Record Embedding) entries

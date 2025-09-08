@@ -135,7 +135,7 @@ class SentencePairBuilder:
 
         return search_pool[:self.num_pos_pairs_titles]
 
-    def build_pairs(self, entities : dict, label_inverted_index : dict) -> pd.DataFrame:
+    def build_training_pairs(self, entities : dict, label_inverted_index : dict) -> pd.DataFrame:
         """
         Construct the training pairs for the training the Sequence Classifier.
 
@@ -234,7 +234,7 @@ class SentencePairBuilder:
         return pairs_df
 
     def find_candidate_clusters(self, test_df : pd.DataFrame, entities : dict, label_inverted_index : dict,
-                                title_column : str, entity_label_column : str) -> pd.DataFrame:
+                                title_column : str, entity_label_column : str, entity_id_column : str) -> pd.DataFrame:
         """
         For each title in the test set, form a set of similar labels (from the existing ones).
 
@@ -246,6 +246,7 @@ class SentencePairBuilder:
                 An inverted index (in the form of a dict) that has been (pre)built on the labels of the input clusters.
             title_column (str): column name of the record titles.
             entity_label_column (str): column name of the entity labels.
+            entity_id_column (str): column name of the entity IDs.
 
         Returns:
             A Pandas DataFrame containing the testing pairs.
@@ -254,6 +255,7 @@ class SentencePairBuilder:
         for index, row in tqdm(test_df.iterrows()):
             entity_title = row[title_column]
             cluster_label = row[entity_label_column]
+            cluster_id = row[entity_id_column]
 
             entity_embed = self.text_vectorizer.encode([entity_title], convert_to_tensor=False)
 
@@ -266,10 +268,10 @@ class SentencePairBuilder:
                 y = 0
                 if label[0] == cluster_label:
                     y = 1
-                query_set[(entity_title, label[0])] = (label[1], y, cluster_label)
+                query_set[(entity_title, label[0])] = (label[1], y, cluster_label, cluster_id)
 
-        query_list = [(key[0], key[1], value[0], value[1], value[2]) for key, value in query_set.items()]
-        pairs_df = pd.DataFrame(query_list, columns=['t1', 't2', 'sim', 'y', 'real_label'])
+        query_list = [(key[0], key[1], val[0], val[1], val[2], val[3]) for key, val in query_set.items()]
+        pairs_df = pd.DataFrame(query_list, columns=['t1', 't2', 'sim', 'y', 'real_label', 'real_entity_id'])
 
         pairs_df.to_csv(self.pairs_path, header=True, index=False)
         pairs_df = pd.read_csv(self.pairs_path, header=0)

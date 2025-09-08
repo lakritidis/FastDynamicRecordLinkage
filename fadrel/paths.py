@@ -3,7 +3,7 @@ import os
 # Editable directory variables
 # The input dataset location in the local filesystem
 # datasets_path = '/media/leo/7CE54B377BB9B18B/datasets/EntityResolution/ProductMatching/'
-datasets_path = 'D:/datasets/EntityResolution/ProductMatching/'
+datasets_path = 'D:/datasets/EntityResolution/ProductMatching/pricerunner/'
 
 # The project location in the local filesystem
 # project_path = '/media/leo/7CE54B377BB9B18B/dev/Python/FastDynamicRecordLinkage/'
@@ -23,6 +23,7 @@ cluster_data_file = 'ClusterData'
 
 models_path = 'models/'
 seq_class_file = 'SequenceClassifier'
+vectorizer_file = 'SentenceBERT'
 model_eval_file = 'model_eval.csv'
 
 

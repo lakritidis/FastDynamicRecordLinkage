@@ -1,11 +1,15 @@
 import os
 import time
 import pickle
+from typing import Any, List
 
 import pandas as pd
 import numpy as np
 
-from sentence_transformers import SentenceTransformer
+from torch.utils.data import DataLoader
+
+from sentence_transformers import SentenceTransformer, InputExample
+from sentence_transformers.losses import ContrastiveLoss, SiameseDistanceMetric
 
 from SentencePairClassifier import SentencePairClassifier
 from SentencePairBuilder import SentencePairBuilder
@@ -22,7 +26,8 @@ def preprocess_text(s):
 class FADRELPreparationPhase:
     def __init__(self, dataset_name : str, entity_id_col : str, entity_label_col : str, title_col : str, paths : dict,
                  max_emb_len : int = 128, epochs : int = 3, batch_size : int = 16, num_neg_pairs_labels : int = 1,
-                 num_pos_pairs_titles: int = 1, num_neg_pairs_titles: int = 0, random_state = 0) -> None:
+                 num_pos_pairs_titles: int = 1, num_neg_pairs_titles: int = 0, finetune_sbert: bool = False,
+                 random_state = 0) -> None:
         """
         Initialize the FaDReL preparation pipeline
 
@@ -38,6 +43,7 @@ class FADRELPreparationPhase:
             num_neg_pairs_labels (int): The number of negative pairs (with the labels) to train the seq. classifier
             num_pos_pairs_titles (int): The number of positive pairs (with other titles) to train the seq. classifier
             num_neg_pairs_titles (int): The number of negative pairs (with other titles) to train the seq. classifier
+            finetune_sbert (bool): Whether to finetune the SBERT model.
             random_state: The random state to use for training.
         """
         self.dataset_name = dataset_name
@@ -48,6 +54,7 @@ class FADRELPreparationPhase:
         self.random_state = random_state
 
         self.classifier_path = paths['bert_path']
+        self.vectorizer_path = paths['vectorizer_path']
         self.training_pairs_path = paths['train_path']
         self.label_index_path = paths['lab_index_path']
         self.cluster_data_path = paths['cl_data_path']
@@ -66,7 +73,8 @@ class FADRELPreparationPhase:
         self.label_inv_index = {} # The inverted index constructed with the entity labels
 
         self.classifier = None
-        self.text_vectorizer = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+        self.fine_tune_sbert = finetune_sbert
+        self.text_vectorizer = SentenceTransformer('all-MiniLM-L6-v2')
 
     def create_training_pairs(self) -> pd.DataFrame:
         """
@@ -78,17 +86,11 @@ class FADRELPreparationPhase:
         """
         # If the siamese pairs for training the model have been previously created for this fold, load them.
         if os.path.isfile(self.training_pairs_path):
-            if os.path.isdir(self.classifier_path):
-                training_pairs = None
-                print("Pre-existing training pairs were found, but a classifier model already exists.", flush=True)
-            else:
-                training_pairs = pd.read_csv(self.training_pairs_path, header=0)
-                print("Pre-existing training pairs were found and loaded.", flush=True)
+            training_pairs = pd.read_csv(self.training_pairs_path, header=0)
+            print("\t\t\tPre-existing training pairs were found and loaded", flush=True)
         else:
             # Otherwise, create the siamese pairs to train the model
-            print("Building training pairs...", flush=True)
-
-            pair_builder = SentencePairBuilder(search_max_threshold=99, search_min_threshold=30,
+            pair_builder = SentencePairBuilder(search_max_threshold=70, search_min_threshold=30,
                                                pairs_path=self.training_pairs_path,
                                                num_neg_pairs_labels=self.num_neg_pairs_labels,
                                                num_pos_pairs_titles=self.num_pos_pairs_titles,
@@ -96,7 +98,35 @@ class FADRELPreparationPhase:
                                                text_vectorizer=None,
                                                random_state=self.random_state)
 
-            training_pairs = pair_builder.build_pairs(entities=self.entities, label_inverted_index=self.label_inv_index)
+            training_pairs = pair_builder.build_training_pairs(entities=self.entities,
+                                                               label_inverted_index=self.label_inv_index)
+
+        # Fine-tune SBERT and create new training pairs
+        if self.fine_tune_sbert:
+            if os.path.isfile(self.vectorizer_path):
+                print("\t\t\tA Pre-existing fine-tuned SBERT model was found and loaded", flush=True)
+            else:
+                print("\t\t\tFine-tuning Sentence BERT...", flush=True)
+                start_time = time.time()
+                train_examples: List[Any] = [None] * training_pairs.shape[0]
+                for n_row, row in enumerate(training_pairs.itertuples()):
+                    train_examples[n_row] = InputExample(texts=[row[1], row[2]], label=1)
+                    print(train_examples[n_row])
+
+                train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=16)
+                model = SentenceTransformer('all-MiniLM-L6-v2')
+                train_loss = ContrastiveLoss(model=model, distance_metric=SiameseDistanceMetric.COSINE_DISTANCE,
+                                             margin=0.5)
+
+                self.text_vectorizer.fit(
+                    train_objectives=[(train_dataloader, train_loss)], epochs=2, warmup_steps=100,
+                    show_progress_bar=False
+                )
+                end_time = time.time()
+                duration = end_time - start_time
+                print("\t\t\tTraining time:", duration, flush=True)
+
+                self.text_vectorizer.save(self.vectorizer_path)
 
         return training_pairs
 
@@ -107,7 +137,7 @@ class FADRELPreparationPhase:
 
         # If a BertForSequenceClassification model has been previously trained on the data of this fold, load it.
         if os.path.isdir(self.classifier_path):
-            print("Found a pre-trained BERT Sequence Classifier.")
+            print("\t\tFound a pre-trained BERT Sequence Classifier, skipping fine-tuning", flush=True)
             self.classifier = None
 
         else:
@@ -116,13 +146,26 @@ class FADRELPreparationPhase:
                 model_name='bert-base-uncased', model_path=self.classifier_path,
                 max_emb_length=self.max_emb_len, epochs=self.epochs, batch_size=self.batch_size)
 
+            print("\t\tBuilding training pairs...", flush=True)
+            start_time = time.time()
             training_pairs = self.create_training_pairs()
+            end_time = time.time()
+            duration = end_time - start_time
+            print("\t\tCompleted in %.3f sec" % duration, flush=True)
 
             # Train the model with the siamese pairs
-            print("Training BERT Sequence Classifier...")
+            print("\t\tTraining...", flush=True)
+            start_time = time.time()
             self.classifier.train(training_pairs)
+            end_time = time.time()
+            duration = end_time - start_time
+            print("\t\tCompleted in %.3f sec" % duration, flush=True)
 
-    def initialize(self, train_df: pd.DataFrame) -> None:
+    def fine_tune_sbert(self, train_df : pd.DataFrame) -> None:
+        print("\t\tFine-Tuning SentenceBERT...", flush=True)
+        # self.text_vectorizer.fit(train_df)
+
+    def initialize(self, train_df : pd.DataFrame) -> None:
         """
         Offline initialization phase that creates:
           1. The list of entities ``[(entity_id, entity_label, entity_label_embedding)]``
@@ -133,9 +176,8 @@ class FADRELPreparationPhase:
             train_df: Pandas DataFrame containing the training data
         """
 
-        print("Initializing...")
         if os.path.isfile(self.label_index_path) and os.path.isfile(self.cluster_data_path):
-            print("\tFound entity labels and their inverted index, aborting...")
+            print("\t\tFound entity labels and their inverted index, aborting...")
             return None
 
         # Get the indexes of the data columns
@@ -149,21 +191,22 @@ class FADRELPreparationPhase:
         entity_ids, indices = np.unique(train_df.loc[:, self.entity_id_column].to_numpy(), return_index=True)
         entity_labels = train_df.iloc[indices, entity_label_column_idx].to_numpy()
 
-        print("\tComputing sentence (S-BERT) embeddings...", flush=True)
+        print("\t\tComputing sentence (S-BERT) embeddings...", flush=True)
         entity_label_embeddings = self.text_vectorizer.encode(entity_labels, convert_to_tensor=False)
 
-        # Create the list of entities: self.entities and their inverted index: self.label_inv_index. Both of them
-        # are required to create the training positive and negative pairs. They are also required during the test
-        # phase, so we construct them here (unless they exist already).
-        print("\tIndexing...", flush=True)
+        # Create the dictionary of entities (self.entities) and their inverted index (self.label_inv_index).
+        # Both structures are required to create the training positive and negative pairs. They are also
+        # required during the test phase, so we construct them here (unless they already exist).
+        print("\t\tIndexing...", flush=True)
         num_unique_clusters = indices.shape[0]
+
         for u in range(num_unique_clusters):
             entity_id = entity_ids[u]
             entity_label = entity_labels[u]
             entity_embedding = entity_label_embeddings[u]
 
-            self.entities[entity_id] = Entity(
-                entity_id=entity_id, entity_label=entity_label, label_embedding=entity_embedding)
+            self.entities[entity_id] = Entity(entity_id=entity_id, fadrel_id=self.num_entities,
+                                              entity_label=entity_label, label_embedding=entity_embedding)
             self.num_entities += 1
             # self.entities[cluster_id].display(True, True)
 
@@ -192,12 +235,16 @@ class FADRELPreparationPhase:
             title_column_idx = train_df.columns.get_loc(self.title_column)
             train_df[self.title_column] = train_df[self.title_column].map(preprocess_text)
 
-            entity_titles = train_df.loc[:, self.title_column].to_numpy()
-            title_embeddings = self.text_vectorizer.encode(entity_titles, convert_to_tensor=False)
+            # Get the record titles
+            record_titles = train_df.loc[:, self.title_column].to_numpy()
+            title_embeddings = self.text_vectorizer.encode(record_titles, convert_to_tensor=False)
 
             for n_row, row in enumerate(train_df.itertuples()):
                 key = row[entity_id_column_idx + 1]
                 entity_title = row[title_column_idx + 1]
+
+                # self.entities is a dictionary, but it acts as a hash table here. It quickly locates the entity
+                # to match this record.
                 self.entities[key].add_record(title=entity_title, embedding=title_embeddings[n_row])
 
         return None
@@ -210,19 +257,21 @@ class FADRELPreparationPhase:
             train_df (pd.DataFrame): A Pandas DataFrame containing the training data
 
         """
-        print("\n=== Starting Offline processing...", flush=True)
+        print("\n=== Starting FADREL Preparation phase...", flush=True)
 
+        print("\tInitializing...", flush=True)
         start_time_init = time.time()
         self.initialize(train_df)
         end_time_init = time.time()
         duration = end_time_init - start_time_init
-        print("Initialization completed in %.3f sec" % duration, flush=True)
+        print("\tInitialization completed in %.3f sec" % duration, flush=True)
 
         # for c in self.clusters:
         #    self.clusters[c].display(show_embeddings=False, show_contents=True)
 
+        print("\tFine-Tuning the Sequence Classifier...")
         start_time_trn = time.time()
         self.fine_tune_classifier()
         end_time_trn = time.time()
         duration = end_time_trn - start_time_trn
-        print("Sequence classification model was loaded/trained in %.3f sec" % duration, flush=True)
+        print("\tThe Sequence Classifier was loaded/trained in %.3f sec" % duration, flush=True)
