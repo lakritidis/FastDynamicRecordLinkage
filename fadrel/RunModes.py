@@ -160,6 +160,7 @@ def mode_cross_validate():
                                               num_neg_pairs_labels=negative_label_pairs,
                                               num_pos_pairs_titles=positive_title_pairs,
                                               num_neg_pairs_titles=negative_title_pairs,
+                                              finetune_sbert=True,
                                               random_state=random_state)
         offline_pipe.run(train_df)
 

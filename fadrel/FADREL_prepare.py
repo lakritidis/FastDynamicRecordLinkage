@@ -74,7 +74,7 @@ class FADRELPreparationPhase:
 
         self.classifier = None
         self.fine_tune_sbert = finetune_sbert
-        self.text_vectorizer = SentenceTransformer('all-MiniLM-L6-v2')
+        self.text_vectorizer = SentenceTransformer(model_name_or_path='all-MiniLM-L6-v2')
 
     def create_training_pairs(self) -> pd.DataFrame:
         """
@@ -101,17 +101,17 @@ class FADRELPreparationPhase:
             training_pairs = pair_builder.build_training_pairs(entities=self.entities,
                                                                label_inverted_index=self.label_inv_index)
 
-        # Fine-tune SBERT and create new training pairs
+        # Fine-tune Sentence Transformer and create new training pairs
         if self.fine_tune_sbert:
-            if os.path.isfile(self.vectorizer_path):
-                print("\t\t\tA Pre-existing fine-tuned SBERT model was found and loaded", flush=True)
+            if os.path.isdir(self.vectorizer_path):
+                print("\t\t\tA Pre-existing fine-tuned Sentence Transformer model was found and loaded", flush=True)
+                self.text_vectorizer = SentenceTransformer(model_name_or_path=self.vectorizer_path)
             else:
-                print("\t\t\tFine-tuning Sentence BERT...", flush=True)
+                print("\t\t\tFine-tuning the Sentence Transformer model...", flush=True)
                 start_time = time.time()
                 train_examples: List[Any] = [None] * training_pairs.shape[0]
                 for n_row, row in enumerate(training_pairs.itertuples()):
-                    train_examples[n_row] = InputExample(texts=[row[1], row[2]], label=1)
-                    print(train_examples[n_row])
+                    train_examples[n_row] = InputExample(texts=[row[1], row[2]], label=row[3])
 
                 train_dataloader = DataLoader(train_examples, shuffle=True, batch_size=16)
                 model = SentenceTransformer('all-MiniLM-L6-v2')
@@ -120,14 +120,36 @@ class FADRELPreparationPhase:
 
                 self.text_vectorizer.fit(
                     train_objectives=[(train_dataloader, train_loss)], epochs=2, warmup_steps=100,
-                    show_progress_bar=False
+                    show_progress_bar=False, save_best_model=True, output_path=self.vectorizer_path
                 )
                 end_time = time.time()
                 duration = end_time - start_time
                 print("\t\t\tTraining time:", duration, flush=True)
 
-                self.text_vectorizer.save(self.vectorizer_path)
+            # Recompute the embeddings with the fine-tuned Sentence Transformer
+            print("\t\t\tRecomputing the embeddings...", flush=True)
+            for e in self.entities.keys():
+                # Update the embeddings of the entity labels
+                entity = self.entities[e]
+                entity.label_embedding = self.text_vectorizer.encode([entity.label], convert_to_tensor=False)
 
+                matching_records = entity.matching_records
+                # Update the embeddings of the titles of the matching records
+                for record_title in matching_records.keys():
+                    matching_records[record_title] = self.text_vectorizer.encode([record_title], convert_to_tensor=False)
+
+
+            # Create new training pairs
+            pair_builder = SentencePairBuilder(search_max_threshold=70, search_min_threshold=30,
+                                               pairs_path=self.training_pairs_path,
+                                               num_neg_pairs_labels=self.num_neg_pairs_labels,
+                                               num_pos_pairs_titles=self.num_pos_pairs_titles,
+                                               num_neg_pairs_titles=self.num_neg_pairs_titles,
+                                               text_vectorizer=None,
+                                               random_state=self.random_state)
+
+            training_pairs = pair_builder.build_training_pairs(entities=self.entities,
+                                                               label_inverted_index=self.label_inv_index)
         return training_pairs
 
     def fine_tune_classifier(self) -> None:
@@ -161,10 +183,6 @@ class FADRELPreparationPhase:
             duration = end_time - start_time
             print("\t\tCompleted in %.3f sec" % duration, flush=True)
 
-    def fine_tune_sbert(self, train_df : pd.DataFrame) -> None:
-        print("\t\tFine-Tuning SentenceBERT...", flush=True)
-        # self.text_vectorizer.fit(train_df)
-
     def initialize(self, train_df : pd.DataFrame) -> None:
         """
         Offline initialization phase that creates:
@@ -191,7 +209,7 @@ class FADRELPreparationPhase:
         entity_ids, indices = np.unique(train_df.loc[:, self.entity_id_column].to_numpy(), return_index=True)
         entity_labels = train_df.iloc[indices, entity_label_column_idx].to_numpy()
 
-        print("\t\tComputing sentence (S-BERT) embeddings...", flush=True)
+        print("\t\tComputing Sentence embeddings...", flush=True)
         entity_label_embeddings = self.text_vectorizer.encode(entity_labels, convert_to_tensor=False)
 
         # Create the dictionary of entities (self.entities) and their inverted index (self.label_inv_index).
@@ -218,7 +236,7 @@ class FADRELPreparationPhase:
                 else:
                     self.label_inv_index[word].append(entity_id)
 
-        # Write the cluster labels (with their sentence embeddings) to a file
+        # Write the entity labels (with their sentence embeddings) to a file
         data_file = open(self.cluster_data_path, 'wb')
         pickle.dump(self.entities, data_file)
         data_file.close()
@@ -245,7 +263,7 @@ class FADRELPreparationPhase:
 
                 # self.entities is a dictionary, but it acts as a hash table here. It quickly locates the entity
                 # to match this record.
-                self.entities[key].add_record(title=entity_title, embedding=title_embeddings[n_row])
+                self.entities[key].add_record(title=entity_title, embedding= title_embeddings[n_row])
 
         return None
 

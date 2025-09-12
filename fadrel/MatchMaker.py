@@ -169,7 +169,7 @@ class MatchMaker:
             #      f"corly Classified: {num_cor_labeled}/{num_actual_seen}")
 
         # Now process all the records for which no matching entity was determined.
-        self.handle_unmatched_records(umat_records)
+        # self.handle_unmatched_records(umat_records)
 
         # Record the evaluation results.
         result_record = FADRELResult(name=self._method_name, f=int(self._method_name[-1]))

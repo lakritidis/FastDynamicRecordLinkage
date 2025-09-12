@@ -111,7 +111,7 @@ class FADRELMatchingPhase:
             # Create the Query set:
             pair_builder = SentencePairBuilder(search_max_threshold=100, search_min_threshold=30,
                                                pairs_path=self.query_path,
-                                               num_neg_pairs_labels=12 * self.batch_size,
+                                               num_neg_pairs_labels=2 * self.batch_size,
                                                num_pos_pairs_titles=0,
                                                num_neg_pairs_titles=0,
                                                text_vectorizer=self.text_vectorizer,
@@ -154,7 +154,7 @@ class FADRELMatchingPhase:
 
         mm = MatchMaker(classifier=self.classifier, batch_size=self.batch_size, max_length=self.max_emb_len,
                         text_vectorizer=self.text_vectorizer, method_name=self.dataset_name + "_" + self.method_name,
-                        eval=self.eval)
+                        evaluate=self.eval)
 
         # a = datetime.datetime.now().replace(microsecond=0)
         mm.perform_matching(query_set, test_df, self.entities, self.title_column, self.label_column, self.label_id_column)
