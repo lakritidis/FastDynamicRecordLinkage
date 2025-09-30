@@ -1,6 +1,6 @@
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, TensorDataset, Dataset
 from transformers import BatchEncoding
 
 
@@ -57,3 +57,34 @@ class SentencePairDataset:
         dataloader = DataLoader(dataset, batch_size=self._batch_size)
 
         return dataloader
+
+
+class PairDataset(Dataset):
+    def __init__(self, pairs, model):
+        self.pairs = pairs
+        self.model = model
+
+    def __len__(self):
+        return len(self.pairs)
+
+    def __getitem__(self, idx):
+        positive, negative = self.pairs[idx]
+        positive_embedding = self.model.encode(positive, convert_to_tensor=True)
+        negative_embedding = self.model.encode(negative, convert_to_tensor=True)
+        return positive_embedding, negative_embedding
+
+
+class TripletDataset(Dataset):
+    def __init__(self, triplets, model):
+        self.triplets = triplets
+        self.model = model
+
+    def __len__(self):
+        return len(self.triplets)
+
+    def __getitem__(self, idx):
+        anchor, positive, negative = self.triplets[idx]
+        anchor_embedding = self.model.encode(anchor, convert_to_tensor=True)
+        positive_embedding = self.model.encode(positive, convert_to_tensor=True)
+        negative_embedding = self.model.encode(negative, convert_to_tensor=True)
+        return anchor_embedding, positive_embedding, negative_embedding

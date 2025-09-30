@@ -12,15 +12,14 @@ from torch.utils.data import DataLoader
 
 from keybert import KeyBERT
 from sentence_transformers import SentenceTransformer, InputExample
-from sentence_transformers.losses import ContrastiveLoss, OnlineContrastiveLoss, CosineSimilarityLoss, SiameseDistanceMetric
+from sentence_transformers.losses import ContrastiveLoss, CosineSimilarityLoss, SiameseDistanceMetric
 
 random_state = 42
-max_embeddings_length = 32
-epochs = 3
+max_embeddings_length = 64
+epochs = 1
 batch_size = 16
-positive_title_pairs = 1
-negative_label_pairs = 3
-negative_title_pairs = 0
+positive_pairs = 3
+negative_pairs = 3
 
 
 def set_fold_paths(dataset_name, fold):
@@ -29,17 +28,70 @@ def set_fold_paths(dataset_name, fold):
                      '_fold' + str(fold),
         'vectorizer_path': paths.output_path + dataset_name + '/' + paths.models_path + paths.vectorizer_file +
                            '_fold' + str(fold),
-        'train_path': paths.output_path + dataset_name + '/' + paths.aux_path + paths.train_pairs_file +
+        'pairs_file': paths.output_path + dataset_name + '/' + paths.aux_path + paths.train_pairs_file +
+                      '_fold' + str(fold) + '.csv',
+        'triplets_file': paths.output_path + dataset_name + '/' + paths.aux_path + paths.train_triplets_file +
                       '_fold' + str(fold) + '.csv',
         'query_path': paths.output_path + dataset_name + '/' + paths.aux_path + paths.query_pairs_file +
                       '_fold' + str(fold) + '.csv',
-        'lab_index_path': paths.output_path + dataset_name + '/' + paths.aux_path + paths.lab_index_file +
+        'inverted_index_datafile': paths.output_path + dataset_name + '/' + paths.aux_path + paths.inv_index_file +
                           '_fold' + str(fold),
-        'cl_data_path': paths.output_path + dataset_name + '/' + paths.aux_path + paths.cluster_data_file +
-                        '_fold' + str(fold)
+        'records_datafile': paths.output_path + dataset_name + '/' + paths.aux_path + paths.records_data_file +
+                        '_fold' + str(fold),
+        'entities_datafile': paths.output_path + dataset_name + '/' + paths.aux_path + paths.entities_data_file +
+                             '_fold' + str(fold)
     }
-
     return fold_paths
+
+
+def mode_cross_validate():
+    # Initialize the random number generators
+    set_random_states(random_state)
+    np_random_state, torch_random_state, cuda_random_state = get_random_states()
+
+    # Original dataset
+    dataset_name = 'irons_steamers'
+    df = pd.read_csv(
+        paths.datasets_path + dataset_name + '.csv',
+        names=['Product ID', 'Product Title', 'Vendor ID', 'Cluster ID', 'Cluster Label', 'Category ID',
+               'Category Label'])
+
+    paths.create_output_dirs(dataset_name + '/')
+
+    entity_id_col = 'Cluster ID'
+    record_title_col = 'Product Title'
+
+    # Apply Cross Validation (CV)
+    kf = KFold(n_splits=5, shuffle=True, random_state=random_state)
+
+    fold = 0
+    for i, (train_idx, test_idx) in enumerate(kf.split(df)):
+        reset_random_states(np_random_state, torch_random_state, cuda_random_state)
+        fold += 1
+
+        print("\n===\n=== Processing fold " + str(fold))
+
+        train_df = df.iloc[train_idx].drop_duplicates(record_title_col).copy()
+        test_df = df.iloc[test_idx].copy()
+        method_name = "neg" + str(negative_pairs) + "_pos" + str(positive_pairs) + "_fold" + str(fold)
+
+        fold_paths = set_fold_paths(dataset_name, fold)
+
+        # Offline pipeline - Preparation Phase
+        offline_pipe = FADRELPreparationPhase(dataset_name=dataset_name, entity_id_col=entity_id_col,
+                                              record_title_col=record_title_col, paths=fold_paths,
+                                              max_emb_len=max_embeddings_length, epochs=epochs, batch_size=batch_size,
+                                              num_neg_pairs=negative_pairs, num_pos_pairs=positive_pairs,
+                                              finetune_sbert=True, random_state=random_state)
+        offline_pipe.run(train_df)
+
+        # Online pipeline - Matching Phase
+        online_pipe = FADRELMatchingPhase(dataset_name=dataset_name, method_name=method_name,
+                                          entity_id_col=entity_id_col, record_title_col=record_title_col,
+                                          paths=fold_paths, epochs=epochs, max_emb_len=max_embeddings_length,
+                                          batch_size=batch_size, random_state=random_state)
+        online_pipe.run(test_df)
+
 
 def mode_sbert_contrastive():
     """
@@ -65,7 +117,6 @@ def mode_sbert_contrastive():
         names=['Product ID', 'Product Title', 'Vendor ID', 'Cluster ID', 'Cluster Label', 'Category ID',
                'Category Label'])
 
-    label_column = 'Cluster Label'
     label_id_column = 'Cluster ID'
     title_column = 'Product Title'
 
@@ -81,18 +132,16 @@ def mode_sbert_contrastive():
 
         print("\n===\n=== Processing fold " + str(fold))
 
-        train_df = df.iloc[train_idx].copy()
+        train_df = df.iloc[train_idx].drop_duplicates(title_column).copy()
         test_df = df.iloc[test_idx].copy()
 
         fold_paths = set_fold_paths(dataset_name, fold)
 
         # Offline pipeline
         offline_pipe = FADRELPreparationPhase(dataset_name=dataset_name, entity_id_col=label_id_column,
-                                              entity_label_col=label_column, title_col=title_column, paths=fold_paths,
+                                              record_title_col=title_column, paths=fold_paths,
                                               max_emb_len=max_embeddings_length, epochs=epochs, batch_size=batch_size,
-                                              num_neg_pairs_labels=negative_label_pairs,
-                                              num_pos_pairs_titles=positive_title_pairs,
-                                              num_neg_pairs_titles=negative_title_pairs,
+                                              num_neg_pairs=negative_pairs, num_pos_pairs=positive_pairs,
                                               random_state=random_state)
 
         offline_pipe.initialize(train_df=train_df)
@@ -113,64 +162,6 @@ def mode_sbert_contrastive():
             warmup_steps=100,
             show_progress_bar=True
         )
-
-
-def mode_cross_validate():
-    # Initialize the random number generators
-    set_random_states(random_state)
-    np_random_state, torch_random_state, cuda_random_state = get_random_states()
-
-    # Original dataset
-    dataset_name = 'irons_steamers'
-    df = pd.read_csv(
-        paths.datasets_path + dataset_name + '.csv',
-        names=['Product ID', 'Product Title', 'Vendor ID', 'Cluster ID', 'Cluster Label', 'Category ID',
-               'Category Label'])
-
-    paths.create_output_dirs(dataset_name + '/')
-
-    # Apply Cross Validation (CV)
-    kf = KFold(n_splits=5, shuffle=True, random_state=random_state)
-
-    label_column = 'Cluster Label'
-    label_id_column = 'Cluster ID'
-    title_column = 'Product Title'
-
-    fold = 0
-    eval_list = []
-    eval_path = dataset_name + '/' + paths.models_path + paths.model_eval_file
-
-    # For each CV fold
-    for i, (train_idx, test_idx) in enumerate(kf.split(df)):
-        reset_random_states(np_random_state, torch_random_state, cuda_random_state)
-        fold += 1
-
-        print("\n===\n=== Processing fold " + str(fold))
-
-        train_df = df.iloc[train_idx].copy()
-        test_df = df.iloc[test_idx].copy()
-        method_name = "neg" + str(negative_label_pairs) + "_pos" + str(positive_title_pairs) + "_fold" + str(fold)
-
-        fold_paths = set_fold_paths(dataset_name, fold)
-
-        # Offline pipeline
-        offline_pipe = FADRELPreparationPhase(dataset_name=dataset_name, entity_id_col=label_id_column,
-                                              entity_label_col=label_column, title_col=title_column, paths=fold_paths,
-                                              max_emb_len=max_embeddings_length, epochs=epochs, batch_size=batch_size,
-                                              num_neg_pairs_labels=negative_label_pairs,
-                                              num_pos_pairs_titles=positive_title_pairs,
-                                              num_neg_pairs_titles=negative_title_pairs,
-                                              finetune_sbert=True,
-                                              random_state=random_state)
-        offline_pipe.run(train_df)
-
-        # Online pipeline
-        online_pipe = FADRELMatchingPhase(dataset_name=dataset_name, method_name=method_name,
-                                          entity_id_col=label_id_column, entity_label_col=label_column,
-                                          title_col=title_column, paths=fold_paths, epochs=epochs,
-                                          max_emb_len=max_embeddings_length, batch_size=batch_size,
-                                          random_state=random_state)
-        online_pipe.run(test_df)
 
 def mode_cluster_labeling():
     dataset_path = 'D:/datasets/EntityResolution/ProductMatching/wdc/'
@@ -215,7 +206,7 @@ def mode_cluster_labeling():
                 if w not in title and w not in stop_words:
                     title.append(w)
 
-        title = " ".join(title)
+        title = " " . join(title)
         print("Selected Title:" , title , "\n")
         entities[cluster_id] = title
 
